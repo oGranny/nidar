@@ -516,30 +516,29 @@ def build_app_callback(
 # Main
 # ---------------------------------------------------------------
 def main() -> None:
-    config = AppConfig()
     mav_provider = MAVLinkGeoProvider(
-        connection_str=config.mavlink_endpoint,
-        serial_baud=config.serial_baud,
+        connection_str=MAVLINK_ENDPOINT,
+        serial_baud=SERIAL_BAUD,
         wait_heartbeat=True,
     )
     placemark_logger = PlacemarkCsvLogger(
-        csv_path=config.placemark_csv, distance_threshold_m=config.distance_threshold
+        csv_path=PLACEMARK_CSV, distance_threshold_m=DISTANCE_THRESHOLD_M
     )
     legacy_logger = (
-        LegacyGeotagCsvLogger(csv_path=config.legacy_csv) if config.enable_legacy_log else None
+        LegacyGeotagCsvLogger(csv_path=LEGACY_CSV) if ENABLE_LEGACY_LOG else None
     )
     user_data = user_app_callback_class()
     callback = build_app_callback(
         mav_provider=mav_provider,
         placemark_logger=placemark_logger,
         legacy_logger=legacy_logger,
-        enable_legacy_log=config.enable_legacy_log,
-        distance_threshold_m=config.distance_threshold,
+        enable_legacy_log=ENABLE_LEGACY_LOG,
+        distance_threshold_m=DISTANCE_THRESHOLD_M,
     )
 
     app = GStreamerDetectionApp(callback, user_data)
     print("Starting placemark scanner with MAVLink geotagging.")
-    print(f"Connecting to MAVLink endpoint: {config.mavlink_endpoint}")
+    print(f"Connecting to MAVLink endpoint: {MAVLINK_ENDPOINT}")
     try:
         app.run()
     except KeyboardInterrupt:
