@@ -2,7 +2,6 @@
 """Entrypoint for the Hailo-based person scanner that emits unique geo placemarks."""
 from __future__ import annotations
 
-import argparse
 import csv
 import math
 import os
@@ -24,6 +23,18 @@ from hailo_apps.hailo_app_python.core.gstreamer.gstreamer_app import app_callbac
 from geo_transform import person_gps_from_bbox
 
 Gst.init(None)
+
+
+# ---------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------
+# Adjust these constants directly to tune runtime behavior.
+MAVLINK_ENDPOINT = "udp:127.0.0.1:14550"
+SERIAL_BAUD = 57600
+PLACEMARK_CSV = "person_placemarks.csv"
+DISTANCE_THRESHOLD_M = 5.0
+ENABLE_LEGACY_LOG = False
+LEGACY_CSV = "detections_geotags.csv"
 
 
 # ---------------------------------------------------------------
@@ -502,71 +513,33 @@ def build_app_callback(
 
 
 # ---------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Start the placemark scanner that logs unique person detections."
-    )
-    parser.add_argument(
-        "--mavlink",
-        default="udp:127.0.0.1:14550",
-        help="MAVLink endpoint (e.g. udp:127.0.0.1:14550 or /dev/ttyUSB0)",
-    )
-    parser.add_argument(
-        "--serial-baud",
-        type=int,
-        default=57600,
-        help="Baud rate for serial MAVLink endpoints (if applicable)",
-    )
-    parser.add_argument(
-        "--placemark-csv",
-        default="person_placemarks.csv",
-        help="Destination CSV for unique placemark entries",
-    )
-    parser.add_argument(
-        "--distance-threshold",
-        type=float,
-        default=5.0,
-        help="Meters between placemarks before a new entry is created",
-    )
-    parser.add_argument(
-        "--log",
-        action="store_true",
-        help="Also append each person detection to the legacy detections_geotags.csv",
-    )
-    parser.add_argument(
-        "--legacy-csv",
-        default="detections_geotags.csv",
-        help="Path to the legacy CSV file used when --log is provided",
-    )
-    return parser.parse_args()
-
-
-# ---------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------
 def main() -> None:
-    args = parse_args()
+    config = AppConfig()
     mav_provider = MAVLinkGeoProvider(
-        connection_str=args.mavlink, serial_baud=args.serial_baud, wait_heartbeat=True
+        connection_str=config.mavlink_endpoint,
+        serial_baud=config.serial_baud,
+        wait_heartbeat=True,
     )
     placemark_logger = PlacemarkCsvLogger(
-        csv_path=args.placemark_csv, distance_threshold_m=args.distance_threshold
+        csv_path=config.placemark_csv, distance_threshold_m=config.distance_threshold
     )
-    legacy_logger = LegacyGeotagCsvLogger(csv_path=args.legacy_csv) if args.log else None
+    legacy_logger = (
+        LegacyGeotagCsvLogger(csv_path=config.legacy_csv) if config.enable_legacy_log else None
+    )
     user_data = user_app_callback_class()
     callback = build_app_callback(
         mav_provider=mav_provider,
         placemark_logger=placemark_logger,
         legacy_logger=legacy_logger,
-        enable_legacy_log=args.log,
-        distance_threshold_m=args.distance_threshold,
+        enable_legacy_log=config.enable_legacy_log,
+        distance_threshold_m=config.distance_threshold,
     )
 
     app = GStreamerDetectionApp(callback, user_data)
     print("Starting placemark scanner with MAVLink geotagging.")
-    print(f"Connecting to MAVLink endpoint: {args.mavlink}")
+    print(f"Connecting to MAVLink endpoint: {config.mavlink_endpoint}")
     try:
         app.run()
     except KeyboardInterrupt:
