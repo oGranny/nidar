@@ -4,8 +4,9 @@ import time
 import math
 
 def connect_vehicle(config):
+    url = config.get("MAVPROXY_URL")
     print(f"Connecting to {config.get("MAVPROXY_URL")}...")
-    master = mavutil.mavlink_connection(config.get("MAVPROXY_URL"))
+    master = mavutil.mavlink_connection(url)
     print(f"Connecting to {config.get("MAVPROXY_URL")}...")
     master.wait_heartbeat()
     print(f"Connected. SYS={master.target_system} COMP={master.target_component}")
