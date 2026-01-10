@@ -1,0 +1,50 @@
+{
+    "MAVPROXY_URL": "udp:127.0.0.1:14550",
+
+    "REACH_RADIUS_GUIDED": 5.0, 
+    "TIMEOUT_REACH_TARGET_GUIDED": 1800, 
+    "DLY_POS_CHK_GUIDED": 1, 
+    
+    "CONF_THRESH": 0.02,
+    "IOU_THRESH": 0.75,
+    "INPUT_SIZE": 640,
+
+    "SRV_PWM_LOCK": {
+        "6": 1000,
+        "7": 1000,
+        "8": 1000,
+        "9": 2000,
+        "10": 2000
+    }, 
+    "SRV_PWM_OPEN": {
+        "6": 2400,
+        "7": 2400,
+        "8": 2400,
+        "9": 600,
+        "10": 600
+    },
+
+    "DETECTION_ATTEMPTS": 5,
+    "RTL_AT_END": false,
+    "TAKEOFF_ALT": 15,
+
+    "DEFAULT_FX": 3057.0,
+    "DEFAULT_FY": 3057.0,
+    "DEFAULT_CX": 2304.0,
+    "DEFAULT_CY": 1296.0,
+
+
+    "SLP_AFT_DRP": 1,
+    "DLY_PREARM_CHK": 1, 
+    "DLY_ARM": 1, 
+    "DLY_AFTER_ARM": 2, 
+    "DLY_AFTER_TAKEOFF": 4, 
+    "DLY_BTW_DETECTION_ATTEMPTS": 0.3,
+    "SLP_AFT_TKO": 2, 
+    "SLP_BTW_ATTEMPTS": 0.5, 
+    "CAMERA_PITCH_OFFSET_DEG": -90.0,
+    "CAMERA_ROLL_OFFSET_DEG": 0.0,
+    "CAMERA_YAW_OFFSET_DEG": 0.0,
+    "SLP_AFT_MSN_COMP": 2
+
+}
