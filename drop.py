@@ -8,7 +8,7 @@ from flask import json
 
 from src.helper.mavlink import arm, connect_vehicle, get_attitude, get_current_position, get_heading, gps_prearm_check, guided_goto, haversine_m, rtl, set_mode, takeoff, wait_until_reached
 from src.helper.servo import drop_packet, reset_servos
-from transform import pixel_to_ground_gps
+from src.scanning.transform import pixel_to_ground_gps
 import numpy as np
 import cv2
 import onnxruntime as ort
@@ -24,8 +24,8 @@ with open(config_path, 'r') as f:
 
 # Primary route points to visit in order (lat, lon, altRelMeters)
 WAYPOINTS: List[Tuple[float, float, float]] = [
-    (22.254650, 84.906942, 15),
-    (22.254960, 84.906802, 15),
+    (28.422252, 77.524940, 15),
+    # (22.254960, 84.906802, 15),
     # (22.254918, 84.907342, 15),
     # (22.254766, 84.906967, 15),
     # (22.254668, 84.907258, 15),
@@ -42,19 +42,19 @@ MODEL_PATH = "models/yolo11s.onnx"
 
 # Drop mechanism configuration
 # DROP_SERVOS = [6, 10, 7, 9, 8]  # Servo outputs for drop in order
-DROP_SERVOS = [6, 10]  # Servo outputs for drop in order
+DROP_SERVOS = [6]  # Servo outputs for drop in order
 
 # =================== MAIN FLOW =======================
 def main():
     master = connect_vehicle(config)
-    # gps_prearm_check(master, config)
+    gps_prearm_check(master, config)
     set_mode(master, config, "LOITER")
-    # arm(master, config)
+    arm(master, config)
     time.sleep(config.get("DLY_AFTER_ARM", 2))
     TAKEOFF_ALT = config.get("TAKEOFF_ALT")
 
     set_mode(master, config, "GUIDED")
-    # takeoff(master, config, TAKEOFF_ALT)
+    takeoff(master, config, TAKEOFF_ALT)
 
     # Prepare camera + detector
     reset_servos(master, config)    
@@ -107,7 +107,7 @@ def main():
                     ret, frame = cap.read()
                     if not ret:
                         print("  WARN: No frame from camera; skipping this attempt")
-                        time.sleep(config.get("SLP_BTW_ATTEMPTS", 0.5))
+                        time.sleep(int(config.get("SLP_BTW_ATTEMPTS", 0.5)))
                         continue
                 
                 # Run detection
@@ -181,7 +181,7 @@ def main():
                 
                 # Small delay between attempts
                 if attempt < DETECTION_ATTEMPTS:
-                    time.sleep(time.sleep("DLY_BTW_DETECTION_ATTEMPTS"))
+                    time.sleep(config.get("DLY_BTW_DETECTION_ATTEMPTS"))
             
             if not person_detected:
                 print("  No person detected in any attempt; continuing to next waypoint.")

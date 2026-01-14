@@ -3,7 +3,7 @@ import math
 from typing import List, Tuple, Dict, Optional
 import sys
 sys.path.append('src/scanning')
-from get_coordinates import pixel_to_ground_gps
+from transform import pixel_to_ground_gps
 import numpy as np
 import cv2
 import onnxruntime as ort

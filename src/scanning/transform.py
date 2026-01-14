@@ -3,88 +3,104 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Mapping
 
 import numpy as np
-from typing import Iterable
 
-# Default pinhole intrinsics (pixels) matching Raspberry Pi Camera Module 3.
-# Resolution assumed: 4608x2592, focal length: ~4.28 mm, pixel pitch: 1.4 um.
 
-def _rotation_matrix(roll_rad: float, pitch_rad: float, yaw_rad: float, heading_rad: float) -> np.ndarray:
-	"""Return the ZYX rotation that maps camera rays into world ENU coordinates."""
+def _rotation_matrix_enu(roll: float, pitch: float, yaw: float) -> np.ndarray:
+    """
+    Body → ENU rotation using aerospace convention.
+    Roll  about X (forward)
+    Pitch about Y (right)
+    Yaw   about Z (down → mapped to ENU)
+    """
 
-	def rx(angle: float) -> np.ndarray:
-		return np.array(
-			[[1.0, 0.0, 0.0], [0.0, math.cos(angle), -math.sin(angle)], [0.0, math.sin(angle), math.cos(angle)]]
-		)
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
 
-	def ry(angle: float) -> np.ndarray:
-		return np.array(
-			[[math.cos(angle), 0.0, math.sin(angle)], [0.0, 1.0, 0.0], [-math.sin(angle), 0.0, math.cos(angle)]]
-		)
-
-	def rz(angle: float) -> np.ndarray:
-		return np.array(
-			[[math.cos(angle), -math.sin(angle), 0.0], [math.sin(angle), math.cos(angle), 0.0], [0.0, 0.0, 1.0]]
-		)
-
-	return rz(heading_rad) @ rz(yaw_rad) @ ry(pitch_rad) @ rx(roll_rad)
+    # ZYX rotation (yaw → pitch → roll)
+    return np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp,     cp * sr,                cp * cr],
+        ]
+    )
 
 
 def pixel_to_ground_gps(
-	pixel: Sequence[float],
-	config,
-	drone_lat: float,
-	drone_lon: float,
-	altitude_m: float,
-	heading_deg: float = 0.0,
-	*,
-	roll_deg: float,
-	pitch_deg: float,
-	yaw_deg: float,
+    pixel: Sequence[float],
+    config: Mapping[str, float],
+    drone_lat: float,
+    drone_lon: float,
+    altitude_m: float,
+    *,
+    roll_deg: float,
+    pitch_deg: float,
+    yaw_deg: float,
 ) -> Tuple[float, float] | None:
-	"""Project a pixel location down to the ground plane and return (lat, lon).
+    """
+    Project a pixel to the ground plane and return (lat, lon).
+    Returns None if the ray does not intersect the ground.
+    """
 
-	Returns ``None`` if the view vector never hits the ground plane (e.g., when the
-	ray points upward because of a bad pitch estimate).
-	"""
-	fx = config.get("DEFAULT_FX")
-	fy = config.get("DEFAULT_FY")
-	cx = config.get("DEFAULT_CX")
-	cy = config.get("DEFAULT_CY")
+    fx = float(config["DEFAULT_FX"])
+    fy = float(config["DEFAULT_FY"])
+    cx = float(config["DEFAULT_CX"])
+    cy = float(config["DEFAULT_CY"])
 
-	if len(pixel) != 2:
-		raise ValueError("pixel must contain (x, y)")
-	if altitude_m < -1:
-		raise ValueError("altitude_m must be positive")
+    if len(pixel) != 2:
+        raise ValueError("pixel must be (u, v)")
+    if altitude_m <= 0:
+        raise ValueError("altitude_m must be positive (AGL)")
 
-	u, v = float(pixel[0]), float(pixel[1])
-	x_cam = (u - cx) / fx
-	y_cam = (v - cy) / fy
-	ray_cam = np.array([x_cam, y_cam, 1.0])
+    u, v = map(float, pixel)
 
-	roll_rad = math.radians(roll_deg)
-	pitch_rad = math.radians(pitch_deg)
-	yaw_rad = math.radians(yaw_deg)
-	heading_rad = math.radians(heading_deg)
+    # --- Camera ray (OpenCV convention) ---
+    x = (u - cx) / fx
+    y = (v - cy) / fy
+    ray_cam = np.array([x, y, 1.0])
 
-	rotation = _rotation_matrix(roll_rad, pitch_rad, yaw_rad, heading_rad)
-	ray_world = rotation @ ray_cam
+    # --- Camera → body frame correction ---
+    # Camera:  x right, y down, z forward
+    # Body:    x forward, y right, z down
+    cam_to_body = np.array(
+        [
+            [0, 0, 1],
+            [1, 0, 0],
+            [0, 1, 0],
+        ]
+    )
 
-	if ray_world[2] >= 0:
-		return None
+    ray_body = cam_to_body @ ray_cam
 
-	t = altitude_m / (-ray_world[2])
-	east_m = t * ray_world[0]
-	north_m = t * ray_world[1]
+    # --- Body → ENU rotation ---
+    roll = math.radians(roll_deg)
+    pitch = math.radians(pitch_deg)
+    yaw = math.radians(yaw_deg)
 
-	meters_per_deg_lat = 111_111.0
-	meters_per_deg_lon = meters_per_deg_lat * math.cos(math.radians(drone_lat))
+    R = _rotation_matrix_enu(roll, pitch, yaw)
+    ray_enu = R @ ray_body
 
-	lat = drone_lat + (north_m / meters_per_deg_lat)
-	lon = drone_lon + (east_m / meters_per_deg_lon)
-	return lat, lon
+    # ENU: Z is UP → ground is at z = -altitude
+    if ray_enu[2] >= 0:
+        return None  # looking above horizon
+
+    t = altitude_m / (-ray_enu[2])
+
+    east_m = t * ray_enu[0]
+    north_m = t * ray_enu[1]
+
+    # --- Convert meters → lat/lon ---
+    meters_per_deg_lat = 111_111.0
+    meters_per_deg_lon = meters_per_deg_lat * math.cos(math.radians(drone_lat))
+
+    lat = drone_lat + north_m / meters_per_deg_lat
+    lon = drone_lon + east_m / meters_per_deg_lon
+
+    return lat, lon
 
 
 __all__ = ["pixel_to_ground_gps"]

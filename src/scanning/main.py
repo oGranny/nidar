@@ -18,7 +18,7 @@ from hailo_apps.hailo_app_python.apps.detection_simple.detection_pipeline_simple
 from hailo_apps.hailo_app_python.core.gstreamer.gstreamer_app import app_callback_class
 from pymavlink import mavutil
 
-from scanning.get_coordinates import pixel_to_ground_gps
+from transform import pixel_to_ground_gps
 from scanning.geotag import save_coordinate_with_threshold
 
 
