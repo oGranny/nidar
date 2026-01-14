@@ -53,7 +53,7 @@ class YoloDetector:
         )
         self.input_name = self.session.get_inputs()[0].name
 
-    def infer(self, config, frame, display=False):
+    def infer(self, frame, config, display=False):
         img, r, (pad_w, pad_h) = letterbox(frame, config.get("INPUT_SIZE", 640))
         img = img[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0
         img = np.expand_dims(img, 0)

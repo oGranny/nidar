@@ -13,8 +13,10 @@ def connect_vehicle(config):
     return master
 
 
-def gps_prearm_check(master, config, min_fix=3, min_sats=6):
-    print("\n=== Pre-arm GPS check ===")
+def gps_prearm_check(master, config):
+    min_fix=config.get("MIN_FIX", 6)
+    min_sats=config.get("MIN_SATS", 3)
+    print(f"\n=== Pre-arm GPS check (min_fix:{min_fix}, min_sats:{min_sats}) ===")
     while True:
         msg = master.recv_match(type="GPS_RAW_INT", timeout=5)
         if not msg:
@@ -181,3 +183,61 @@ def rtl(master):
     )
     print("Commanded Return-to-Launch")
 
+def upload_mission(master, config, waypoints):
+    print("\n=== Uploading mission (waypoints + RTL) ===")
+
+    # Clear existing mission
+    master.mav.mission_clear_all_send(master.target_system, master.target_component)
+    time.sleep(config.get("SLP_BFR_UPLD_AUTO", 1))
+
+    # Prepare list for upload
+    mission_items = []
+    for lat, lon, alt in waypoints:
+        mission_items.append({
+            "lat": lat,
+            "lon": lon,
+            "alt": alt,
+            "cmd": mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+        })
+
+    # Add RTL at end
+    mission_items.append({
+        "lat": 0,
+        "lon": 0,
+        "alt": 0,
+        "cmd": mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+    })
+
+    count = len(mission_items)
+
+    # Inform FC how many items
+    master.mav.mission_count_send(master.target_system, master.target_component, count)
+    print(f"Mission Count Sent: {count}")
+
+    # Mission item upload loop
+    sent = 0
+    while sent < count:
+        req = master.recv_match(type=["MISSION_REQUEST_INT", "MISSION_REQUEST"], timeout=10)
+        if not req:
+            print("ERROR: Timeout waiting for FC mission request")
+            return
+        seq = req.seq
+        item = mission_items[seq]
+
+        master.mav.mission_item_int_send(
+            master.target_system,
+            master.target_component,
+            seq,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            item["cmd"],
+            0,     # current
+            1,     # autocontinue
+            0, 0, 0, 0,
+            int(item["lat"] * 1e7),
+            int(item["lon"] * 1e7),
+            item["alt"]
+        )
+        print(f"Uploaded WP {seq}: {item}")
+        sent = seq
+
+    print("✔ Mission upload complete")

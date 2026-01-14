@@ -20,7 +20,7 @@ import os
 #     pwm = int(round(min_pwm + (angle - min_angle) * (span_p / span_a)))
 #     return max(min(pwm, max_pwm), min_pwm)
 
-def set_servo_angle(master, config, servo_output: int, pwm: int):
+def set_servo_pwm(master, config, servo_output: int, pwm: int):
     print(f"Sending SERVO{servo_output} -> PWM {pwm}")
     master.mav.command_long_send(
         master.target_system,
@@ -35,9 +35,12 @@ def set_servo_angle(master, config, servo_output: int, pwm: int):
 def reset_servos(master, config):
     locks = config.get("SRV_PWM_LOCK")
     for key, val in locks.items():
-        set_servo_angle(master, config, int(key),   int(val))
+        set_servo_pwm(master, config, int(key),   int(val))
 
 def drop_packet(master, config, servo_output):
     map = config.get("SRV_PWM_OPEN")
-    set_servo_angle(master, config, servo_output, int(map[str(servo_output)]))
+    set_servo_pwm(master, config, servo_output, int(map[str(servo_output)]))
+    set_servo_pwm(master, config, config.get("BUZZ_PWM_PIN"), int(config.get("BUZZ_PWM_LOCK")))
+    time.sleep(config.get("SLP_AFT_BUZZ", 2.0))
+    set_servo_pwm(master, config, config.get("BUZZ_PWM_PIN"), int(0))
     time.sleep(config.get("SLP_AFT_DRP", 1.0))
