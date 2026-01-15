@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
+from flask import json
 import os
 import sys
+from pymavlink import mavutil
 from loguru import logger
 import queue
 import threading
@@ -165,8 +167,6 @@ def parse_args() -> argparse.Namespace:
     os.makedirs(args.output_dir, exist_ok=True)
 
     return args
-
-
 
 def run_inference_pipeline(net, input, batch_size, labels, output_dir,
           save_stream_output=False, camera_resolution=None, output_resolution=None,

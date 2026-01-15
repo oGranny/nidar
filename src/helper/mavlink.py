@@ -75,6 +75,44 @@ def takeoff(master, config, alt):
     time.sleep(config.get("DLY_TAKEOFF", 4))
 
 
+def upload_mission(master, waypoints, alt=20):
+    """
+    Upload a list of waypoints to the vehicle.
+    Waypoints structure: [(lat, lon, alt), ...]
+    """
+    print(f"\n=== Uploading Mission ({len(waypoints)} items) ===")
+    
+    # Clear existing mission
+    master.mav.mission_clear_all_send(master.target_system, master.target_component)
+    master.recv_match(type=['MISSION_ACK'], blocking=True)
+    
+    # Send count
+    master.mav.mission_count_send(master.target_system, master.target_component, len(waypoints))
+    
+    for i, (lat, lon) in enumerate(waypoints):
+        msg = master.recv_match(type=['MISSION_REQUEST'], blocking=True)
+        if not msg:
+            print("❌ Mission upload failed (no request)")
+            return
+
+        print(f"  Uploading WP {i}: Lat={lat}, Lon={lon}, Alt={alt}")
+        master.mav.mission_item_int_send(
+            master.target_system,
+            master.target_component,
+            i,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+            0, 1, # Current, Autocontinue
+            0, 0, 0, 0, # Params 1-4
+            int(lon * 1e7),
+            int(lat * 1e7),
+            alt
+        )
+        
+    master.recv_match(type=['MISSION_ACK'], blocking=True)
+    print("✔ Mission Uploaded Successfully")
+
+
 def guided_goto(master, config, lat, lon, alt):
     # Use SET_POSITION_TARGET_GLOBAL_INT for GUIDED navigation
     type_mask = (
@@ -105,7 +143,7 @@ def guided_goto(master, config, lat, lon, alt):
     print(f"→ GUIDED GOTO lat={lat:.7f} lon={lon:.7f} alt={alt:.1f}m")
 
 
-def get_current_position(master, config) -> Optional[Tuple[float, float, float]]:
+def get_current_position(master, config=None) -> Optional[Tuple[float, float, float]]:
     msg = master.recv_match(type="GLOBAL_POSITION_INT", timeout=2)
     if not msg:
         return None
@@ -123,7 +161,7 @@ def get_heading(master, config) -> Optional[float]:
     return float(msg.heading)
 
 
-def get_attitude(master, config) -> Optional[Tuple[float, float, float]]:
+def get_attitude(master, config=None) -> Optional[Tuple[float, float, float]]:
     """Get drone attitude from flight controller IMU.
     Returns (roll, pitch, yaw) in degrees.
     Roll: positive = right wing down

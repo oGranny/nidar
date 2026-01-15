@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence, Tuple, Mapping
+from typing import Sequence, Tuple, Mapping, Iterable
 
 import numpy as np
 
@@ -103,9 +103,6 @@ def pixel_to_ground_gps(
     return lat, lon
 
 
-__all__ = ["pixel_to_ground_gps"]
-
-
 def calibrate_camera_from_images(
 	image_paths: Iterable[str], board_size: Tuple[int, int] = (9, 6), square_size_mm: float = 25.4
 ) -> Tuple[float, float, float, float]:
@@ -167,3 +164,21 @@ def calibrate_camera_from_images(
 	cx = float(mtx[0, 2])
 	cy = float(mtx[1, 2])
 	return fx, fy, cx, cy
+
+
+def gps_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Approx distance in meters between two GPS coordinates using a local tangent-plane
+    approximation (consistent with pixel_to_ground_gps meters↔degrees conversion).
+    """
+    meters_per_deg_lat = 111_111.0
+    mean_lat = (lat1 + lat2) * 0.5
+    meters_per_deg_lon = meters_per_deg_lat * math.cos(math.radians(mean_lat))
+
+    north_m = (lat2 - lat1) * meters_per_deg_lat
+    east_m = (lon2 - lon1) * meters_per_deg_lon
+
+    return float(math.hypot(east_m, north_m))
+
+
+__all__ = ["pixel_to_ground_gps", "gps_distance_m"]

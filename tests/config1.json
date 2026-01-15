@@ -48,3 +48,14 @@
     "SLP_AFT_MSN_COMP": 2
 
 }
+// arducam
+    "DEFAULT_FX": 1171.53,
+    "DEFAULT_FY": 1178.04,
+    "DEFAULT_CX": 300.2,
+    "DEFAULT_CY": 204.2,
+
+// picam v3
+    "DEFAULT_FX": 1171.53,
+    "DEFAULT_FY": 1178.04,
+    "DEFAULT_CX": 300.2,
+    "DEFAULT_CY": 204.2,

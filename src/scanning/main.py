@@ -130,15 +130,19 @@ def _geotag_person_detection(
 
 	xmin_px, ymin_px, xmax_px, ymax_px = bbox_pixels
 	center_pixel = ((xmin_px + xmax_px) / 2.0, (ymin_px + ymax_px) / 2.0)
+	camera_pitch = snapshot.pitch_deg + 90
+	camera_roll = snapshot.roll_deg + 0
+	camera_yaw = snapshot.yaw_deg + 0
+
 	gps = pixel_to_ground_gps(
 		pixel=center_pixel,
 		drone_lat=snapshot.latitude,
 		drone_lon=snapshot.longitude,
 		altitude_m=snapshot.relative_alt_m,
 		heading_deg=snapshot.heading_deg,
-		roll_deg=snapshot.roll_deg,
-		pitch_deg=snapshot.pitch_deg,
-		yaw_deg=snapshot.yaw_deg,
+		roll_deg=camera_roll,
+		pitch_deg=camera_pitch,
+		yaw_deg=camera_yaw,
 	)
 	if gps is None:
 		return None

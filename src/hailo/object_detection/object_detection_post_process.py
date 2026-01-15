@@ -4,11 +4,31 @@ from common.toolbox import id_to_color
 
 import os
 from collections import deque
-from typing import Optional, Tuple, Dict, Callable
-import sys
 
-# Add parent paths for imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+from tracklet_database import init_database, upsert_tracklet
+
+# Initialize database on module load
+init_database()
+
+# Load camera config for GPS projection
+_camera_config = None
+
+def set_camera_config(config: dict):
+    """Set camera intrinsics config for GPS projection."""
+    global _camera_config
+    _camera_config = config
+
+def get_camera_config():
+    """Get camera intrinsics config."""
+    global _camera_config
+    if _camera_config is None:
+        # Try to load from default config file
+        config_path = os.path.join(os.path.dirname(__file__), "config.json")
+        if os.path.exists(config_path):
+            import json
+            with open(config_path, 'r') as f:
+                _camera_config = json.load(f)
+    return _camera_config
 
 # Dictionary to store a limited history of tracklet coordinates.
 # The keys will be the track IDs.
@@ -16,90 +36,8 @@ tracklet_history = {}
 # Maximum number of past frames to display
 trail_length = 30 
 # Only draw trail for certain classes (e.g., person=0, phone=67 in COCO)
-TRACKLET_CLASSES = [0, 67]  # PERSON, SMARTPHONE
+TRACKLET_CLASSES = [0]  # PERSON, SMARTPHONE
 
-# Track active IDs to detect when persons leave frame
-_active_track_ids: set = set()
-# Store geotagged data for each track
-_track_geotags: Dict[int, list] = {}
-# Callback for when track is lost
-_on_track_lost_callback: Optional[Callable] = None
-# Drone telemetry getter function
-_get_drone_telemetry: Optional[Callable] = None
-
-
-def set_track_lost_callback(callback: Callable[[int, dict], None]) -> None:
-    """
-    Set callback function to run when a tracked person leaves the frame.
-    
-    Args:
-        callback: Function that takes (track_id, track_data) where track_data contains:
-                  - 'geotags': list of (lat, lon) positions
-                  - 'centroids': list of (x, y) pixel positions
-                  - 'class': detected class name
-    """
-    global _on_track_lost_callback
-    _on_track_lost_callback = callback
-
-
-def set_drone_telemetry_getter(getter: Callable[[], Optional[Tuple[float, float, float, float, float, float, float]]]) -> None:
-    """
-    Set function to get drone telemetry data.
-    
-    Args:
-        getter: Function that returns (lat, lon, alt, heading, roll, pitch, yaw) or None
-    """
-    global _get_drone_telemetry
-    _get_drone_telemetry = getter
-
-
-def _geotag_detection(bbox: list, image_shape: tuple) -> Optional[Tuple[float, float]]:
-    """
-    Convert detection bbox to GPS coordinates using drone telemetry.
-    
-    Args:
-        bbox: [xmin, ymin, xmax, ymax] bounding box
-        image_shape: (height, width) of the image
-        
-    Returns:
-        (latitude, longitude) or None if telemetry unavailable
-    """
-    if _get_drone_telemetry is None:
-        return None
-    
-    telemetry = _get_drone_telemetry()
-    if telemetry is None:
-        return None
-    
-    lat, lon, alt, heading, roll, pitch, yaw = telemetry
-    
-    # Import geo_transform function
-    try:
-        from geo_transform import person_gps_from_bbox
-    except ImportError:
-        try:
-            from src.geo_transform import person_gps_from_bbox
-        except ImportError:
-            return None
-    
-    # Get image dimensions for camera intrinsics
-    img_height, img_width = image_shape[:2]
-    cx, cy = img_width / 2, img_height / 2
-    # Estimate focal length (adjust based on your camera calibration)
-    fx = fy = img_width * 0.8  # Approximate for typical drone cameras
-    
-    xmin, ymin, xmax, ymax = bbox
-    
-    result = person_gps_from_bbox(
-        bbox_x1=xmin, bbox_y1=ymin,
-        bbox_x2=xmax, bbox_y2=ymax,
-        drone_lat=lat, drone_lon=lon,
-        altitude_m=alt, heading_deg=heading,
-        roll=roll, pitch=pitch, yaw=yaw,
-        fx=fx, fy=fy, cx=cx, cy=cy
-    )
-    
-    return result
 
 def inference_result_handler(original_frame, infer_results, labels, config_data, tracker=None, draw_trail=False):
     """
@@ -267,30 +205,20 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
             box = boxes[idx]  # [x, y, w, h]
             score = scores[idx]
             dets_for_tracker.append([*box, score])
-
         # Skip tracking if no detections passed
         if not dets_for_tracker:
-            # Check for lost tracks when no detections
-            _check_lost_tracks(set(), labels, classes if classes else [])
             return img_out
 
         # Run BYTETracker and get active tracks
         online_targets = tracker.update(np.array(dets_for_tracker))
-        
-        # Collect current track IDs
-        current_track_ids = set()
 
         # Draw tracked bounding boxes with ID labels
         for track in online_targets:
             track_id = track.track_id  # Unique tracker ID
-            current_track_ids.add(track_id)
-            
             x1, y1, x2, y2 = track.tlbr  # Bounding box (top-left, bottom-right)
             xmin, ymin, xmax, ymax = map(int, [x1, y1, x2, y2])
             best_idx = find_best_matching_detection_index(track.tlbr, boxes)
             color = tuple(id_to_color(classes[best_idx]).tolist())  # Color based on class
-            class_name = labels[classes[best_idx]] if best_idx is not None else "unknown"
-            
             if best_idx is None:
                 draw_detection(img_out, [xmin, ymin, xmax, ymax], f"ID {track_id}",
                                track.score * 100.0, color, track=True)
@@ -298,33 +226,38 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
                 draw_detection(img_out, [xmin, ymin, xmax, ymax], [labels[classes[best_idx]], f"ID {track_id}"],
                                track.score * 100.0, color, track=True)
             
-            # Compute centroid
+            print(f"Track ID {track_id} matched to detection index {best_idx} (class {classes[best_idx] if best_idx is not None else 'N/A'})")
+            
+            # Save person tracklets to database with GPS coordinates
+            if best_idx is not None and classes[best_idx] in TRACKLET_CLASSES:
+                camera_config = get_camera_config()
+                if camera_config:
+                    gps_result = upsert_tracklet(
+                        track_id=track_id,
+                        class_id=classes[best_idx],
+                        xmin=xmin,
+                        ymin=ymin,
+                        xmax=xmax,
+                        ymax=ymax,
+                        config=camera_config,
+                        class_name=labels[classes[best_idx]],
+                        confidence=track.score
+                    )
+                    if gps_result:
+                        print(f"  -> Track {track_id} GPS: ({gps_result[0]:.6f}, {gps_result[1]:.6f})")
+                else:
+                    print(f"  -> Warning: No camera config for GPS projection")
+            
+            if best_idx is None or classes[best_idx] not in TRACKLET_CLASSES:
+                continue
+            
+
+
+            # Get the centroid of the current bounding box
             center_x = int((x1 + x2) / 2)
             center_y = int((y1 + y2) / 2)
             centroid = (center_x, center_y)
             
-            # Geotag the detection
-            geotag = _geotag_detection([xmin, ymin, xmax, ymax], img_out.shape)
-            
-            # Store geotag data for this track
-            if track_id not in _track_geotags:
-                _track_geotags[track_id] = {
-                    'geotags': [],
-                    'centroids': [],
-                    'class': class_name
-                }
-            
-            if geotag:
-                _track_geotags[track_id]['geotags'].append(geotag)
-                print(f"Track ID: {track_id}, Class: {class_name}, Centroid: {centroid}, GPS: ({geotag[0]:.7f}, {geotag[1]:.7f})")
-            else:
-                print(f"Track ID: {track_id}, Class: {class_name}, Centroid: {centroid}")
-            
-            _track_geotags[track_id]['centroids'].append(centroid)
-                               
-            if best_idx is None or classes[best_idx] not in TRACKLET_CLASSES:
-                continue
-
             # Initialize or update the tracklet history
             if track_id not in tracklet_history:
                 tracklet_history[track_id] = deque(maxlen=trail_length)
@@ -339,9 +272,6 @@ def draw_detections(detections: dict, img_out: np.ndarray, labels, tracker=None,
                     # Draw a line between the points and draw the points as circles
                     cv2.line(img_out, point_a, point_b, color, 3) #(255, 0, 0), 2)
                     cv2.circle(img_out, point_b, radius=20, thickness=1, color=color) #, thickness=-1) # -1 for filled circle
-        
-        # Check for lost tracks
-        _check_lost_tracks(current_track_ids, labels, classes)
 
 
 
@@ -398,78 +328,3 @@ def compute_iou(boxA, boxB):
     areaA = max(1e-5, (boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
     areaB = max(1e-5, (boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
     return inter / (areaA + areaB - inter + 1e-5)
-
-
-def _check_lost_tracks(current_ids: set, labels: list, classes: list) -> None:
-    """
-    Check for tracks that are no longer present and trigger callback.
-    
-    Args:
-        current_ids: Set of currently active track IDs
-        labels: List of class labels
-        classes: List of class indices
-    """
-    global _active_track_ids, _track_geotags, _on_track_lost_callback
-    
-    lost_ids = _active_track_ids - current_ids
-    
-    for lost_id in lost_ids:
-        track_data = _track_geotags.get(lost_id, {
-            'geotags': [],
-            'centroids': [],
-            'class': 'unknown'
-        })
-        
-        # Compute final GPS position (average of all geotags)
-        final_gps = None
-        if track_data['geotags']:
-            avg_lat = sum(g[0] for g in track_data['geotags']) / len(track_data['geotags'])
-            avg_lon = sum(g[1] for g in track_data['geotags']) / len(track_data['geotags'])
-            final_gps = (avg_lat, avg_lon)
-            track_data['final_gps'] = final_gps
-        
-        print(f"\n{'='*50}")
-        print(f"🚨 TRACK LOST: ID {lost_id} ({track_data['class']})")
-        if final_gps:
-            print(f"📍 Final GPS Position: ({final_gps[0]:.7f}, {final_gps[1]:.7f})")
-            print(f"   Total geotag samples: {len(track_data['geotags'])}")
-        print(f"{'='*50}\n")
-        
-        # Call user callback if set
-        if _on_track_lost_callback:
-            try:
-                _on_track_lost_callback(lost_id, track_data)
-            except Exception as e:
-                print(f"Error in track lost callback: {e}")
-        
-        # Clean up track data
-        if lost_id in _track_geotags:
-            del _track_geotags[lost_id]
-        if lost_id in tracklet_history:
-            del tracklet_history[lost_id]
-    
-    # Update active track IDs
-    _active_track_ids = current_ids.copy()
-
-
-def get_track_geotag(track_id: int) -> Optional[dict]:
-    """
-    Get current geotag data for a specific track.
-    
-    Args:
-        track_id: The track ID to query
-        
-    Returns:
-        Dict with 'geotags', 'centroids', 'class', and optionally 'final_gps'
-    """
-    return _track_geotags.get(track_id)
-
-
-def get_all_active_tracks() -> Dict[int, dict]:
-    """
-    Get geotag data for all currently active tracks.
-    
-    Returns:
-        Dict mapping track_id -> track_data
-    """
-    return _track_geotags.copy()

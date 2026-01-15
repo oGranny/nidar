@@ -1,14 +1,18 @@
 {
-  "visualization_params": {
-    "score_thres": 0.15,
-    "max_boxes_to_draw": 500,
-    "tracker": {
-      "track_thresh": 0.1,
-      "track_buffer": 10,
-      "match_thresh": 0.9,
-      "aspect_ratio_thresh": 2.0,
-      "min_box_area": 500,
-      "mot20": false
+    "DEFAULT_FX": 800.0,
+    "DEFAULT_FY": 800.0,
+    "DEFAULT_CX": 320.0,
+    "DEFAULT_CY": 240.0,
+    "visualization_params": {
+        "score_thres": 0.5,
+        "max_boxes_to_draw": 50,
+        "tracker": {
+            "track_thresh": 0.1,
+            "track_buffer": 10,
+            "match_thresh": 0.9,
+            "aspect_ratio_thresh": 2.0,
+            "min_box_area": 500,
+            "mot20": false
+        }
     }
-  }
 }

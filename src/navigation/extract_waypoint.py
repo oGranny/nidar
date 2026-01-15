@@ -6,6 +6,7 @@ from shapely.affinity import rotate
 
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
 METERS_PER_DEG_LAT = 111000.0  # local scale used elsewhere
+BUFFER_KML = 10.0 # buffer in meters
 
 def parse_kml_polygon_coords(kml_path):
     """Extract (lon, lat) coordinates from the first Polygon->LinearRing in the KML."""
@@ -30,7 +31,8 @@ def parse_kml_polygon_coords(kml_path):
             continue
         lon = float(parts[0])
         lat = float(parts[1])
-        points.append((lon, lat))
+        alt = float(parts[2]) if len(parts) > 2 else 0.0
+        points.append((lon, lat, alt))
 
     if len(points) < 3:
         raise ValueError("Not enough points to form a polygon.")
@@ -71,7 +73,7 @@ def _interpolate_by_distance(p0, p1, max_seg_m):
     pts.append(p1)
     return pts
 
-def generate_parallel_path(border_coords, spacing_m, angle_deg, max_seg_m=0.0):
+def generate_parallel_path(border_coords, spacing_m, angle_deg,  max_seg_m=0.0, alt=20,):
     """
     Generate a lawnmower/parallel path inside the polygon defined by border_coords.
 
@@ -82,6 +84,11 @@ def generate_parallel_path(border_coords, spacing_m, angle_deg, max_seg_m=0.0):
                0 or less = no extra interpolation.
     """
     poly = Polygon(border_coords)
+
+    if BUFFER_KML != 0:
+        poly = poly.buffer(-BUFFER_KML / METERS_PER_DEG_LAT)
+        if poly.is_empty:
+            return []
 
     spacing_deg = spacing_m / METERS_PER_DEG_LAT
     rotated = rotate(poly, -angle_deg, origin="centroid")
@@ -121,10 +128,10 @@ def generate_parallel_path(border_coords, spacing_m, angle_deg, max_seg_m=0.0):
     else:
         waypoints = [(x, y) for x, y in coarse]
 
-    return [(lon, lat) for lon, lat in waypoints]
+    return [(lon, lat, alt) for lon, lat in waypoints]
 
 def main():
-    kml_path = r"f:\nidar\dts.kml"
+    kml_path = r"f:/nidar/dts.kml"
 
     spacing_meters = 20.0   # distance between parallel lines
     angle_degrees = 90.0     # orientation of parallel lines
@@ -147,8 +154,8 @@ def main():
     )
     print(f"Generated {len(waypoints)} waypoints (max_seg_m = {max_seg_m} m).")
     print("waypoints = [")
-    for lon, lat in waypoints:
-        print(f"    ({lon:.12f}, {lat:.12f}),")
+    for lon, lat, alt in waypoints:
+        print(f"    ({lon:.12f}, {lat:.12f}, {alt}),")
     print("]")
 
 if __name__ == "__main__":
